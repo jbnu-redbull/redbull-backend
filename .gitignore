@@ -135,6 +135,7 @@ venv/
 ENV/
 env.bak/
 venv.bak/
+start.ps1
 
 # Spyder project settings
 .spyderproject
@@ -174,3 +175,5 @@ cython_debug/
 .pypirc
 
 nohup.out
+
+tests/test_data/

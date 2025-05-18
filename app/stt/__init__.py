@@ -9,15 +9,6 @@ from .utils import (
     validate_audio_file,
     format_timestamp
 )
-from .settings import (
-    HF_TOKEN,
-    WHISPER_MODEL_PATH,
-    DIARIZATION_MODEL,
-    CHUNK_LENGTH_S,
-    STRIDE_LENGTH_S,
-    DEVICE,
-    OUTPUT_DIR
-)
 
 __all__ = [
     'initialize_diarization',
@@ -26,12 +17,5 @@ __all__ = [
     'align_segments',
     'save_results',
     'validate_audio_file',
-    'format_timestamp',
-    'HF_TOKEN',
-    'WHISPER_MODEL_PATH',
-    'DIARIZATION_MODEL',
-    'CHUNK_LENGTH_S',
-    'STRIDE_LENGTH_S',
-    'DEVICE',
-    'OUTPUT_DIR'
+    'format_timestamp'
 ]

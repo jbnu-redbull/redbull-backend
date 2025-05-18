@@ -1,20 +1,47 @@
-import os
+from pydantic_settings import BaseSettings, SettingsConfigDict
+from pydantic import Field
 from pathlib import Path
 
-# Hugging Face Token
-HF_TOKEN = os.getenv("HF_TOKEN", "your_huggingface_token_here")
+class STTSettings(BaseSettings):
+    """
+    STT(Speech-to-Text) 관련 설정
+    """
+    # Hugging Face Token
+    hf_token: str = Field("your_huggingface_token_here", alias="HF_TOKEN")
+    
+    # Model paths
+    whisper_model_path: str = Field("openai/whisper-small", alias="WHISPER_MODEL_PATH")
+    diarization_model: str = Field("pyannote/speaker-diarization-3.1", alias="DIARIZATION_MODEL")
+    
+    # Audio processing settings
+    chunk_length_s: int = Field(15, alias="CHUNK_LENGTH_S")
+    stride_length_s: int = Field(3, alias="STRIDE_LENGTH_S")
+    
+    # Device settings
+    device: str = Field("cpu", alias="DEVICE")
+    
+    # Output settings
+    output_dir: Path = Field(Path("./results"), alias="OUTPUT_DIR")
+    
+    # Database settings
+    db_path: str = Field("./database.db", alias="DB_PATH")
+    
+    model_config = SettingsConfigDict(
+        env_file=".env",
+        env_file_encoding="utf-8",
+        extra="ignore"
+    )
+    
+    def __init__(self, **kwargs):
+        super().__init__(**kwargs)
+        self.output_dir.mkdir(exist_ok=True)
 
-# Model paths
-WHISPER_MODEL_PATH = "./models/openai/whisper-small-v3"
-DIARIZATION_MODEL = "pyannote/speaker-diarization-3.1"
+# 전역 설정 객체 생성
+stt_settings = STTSettings()
 
-# Audio processing settings
-CHUNK_LENGTH_S = 30
-STRIDE_LENGTH_S = 5
-
-# Device settings
-DEVICE = "cuda" if os.getenv("USE_GPU", "true").lower() == "true" else "cpu"
-
-# Output settings
-OUTPUT_DIR = Path("./results")
-OUTPUT_DIR.mkdir(exist_ok=True)
+def set_stt_settings(_stt_settings: STTSettings):
+    """
+    STT 설정을 전역적으로 변경하기 위한 함수
+    """
+    global stt_settings
+    stt_settings = _stt_settings

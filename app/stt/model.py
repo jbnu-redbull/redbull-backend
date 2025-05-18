@@ -1,56 +1,98 @@
 import torch
 from pyannote.audio import Pipeline
 from transformers import pipeline as hf_pipeline
-from .settings import (
-    HF_TOKEN,
-    WHISPER_MODEL_PATH,
-    DIARIZATION_MODEL,
-    CHUNK_LENGTH_S,
-    STRIDE_LENGTH_S,
-    DEVICE
-)
+from .settings import stt_settings
+from typing import Dict, List, Any, Tuple, Optional
+import asyncio
+from pyannote.core import Annotation
 
-def initialize_diarization():
+async def initialize_diarization():
     """Initialize the speaker diarization pipeline."""
-    diarization_pipeline = Pipeline.from_pretrained(
-        DIARIZATION_MODEL,
-        use_auth_token=HF_TOKEN
+    # Run in thread pool since Pipeline.from_pretrained is blocking
+    loop = asyncio.get_event_loop()
+    diarization_pipeline = await loop.run_in_executor(
+        None,
+        lambda: Pipeline.from_pretrained(
+        stt_settings.diarization_model,
+        use_auth_token=stt_settings.hf_token
+        )
     )
     return diarization_pipeline
 
-def initialize_asr(device=DEVICE):
+async def initialize_asr(device=None):
     """Initialize the Whisper ASR pipeline."""
-    asr_pipeline = hf_pipeline(
+    if device is None:
+        device = stt_settings.device
+        
+    # Run in thread pool since hf_pipeline is blocking
+    loop = asyncio.get_event_loop()
+    asr_pipeline = await loop.run_in_executor(
+        None,
+        lambda: hf_pipeline(
         "automatic-speech-recognition",
-        model=WHISPER_MODEL_PATH,
+        model=stt_settings.whisper_model_path,
         device=device,
-        chunk_length_s=CHUNK_LENGTH_S,
-        stride_length_s=STRIDE_LENGTH_S,
+        chunk_length_s=stt_settings.chunk_length_s,
+        stride_length_s=stt_settings.stride_length_s,
         return_timestamps=True
+        )
     )
     return asr_pipeline
 
-def process_audio(file_path, diarization_pipeline, asr_pipeline, num_speakers=None):
-    """Process audio file for speaker diarization and transcription."""
-    print(f"Starting speaker diarization: {file_path}")
+async def process_audio(
+    file_path: str,
+    diarization_pipeline: Optional[Pipeline] = None,
+    asr_pipeline: Optional[Pipeline] = None,
+    num_speakers: int = 2
+) -> Tuple[Optional[Any], List[Dict]]:
+    """
+    Process audio file with diarization and ASR.
     
-    # Run speaker diarization
-    if num_speakers:
-        diarization = diarization_pipeline(file_path, num_speakers=num_speakers)
-    else:
-        diarization = diarization_pipeline(file_path)
+    Args:
+        file_path: Path to audio file
+        diarization_pipeline: Speaker diarization pipeline
+        asr_pipeline: ASR pipeline
+        num_speakers: Number of speakers to detect
+        
+    Returns:
+        Tuple of (diarization results, ASR chunks)
+    """
+    loop = asyncio.get_event_loop()
     
-    print("Starting speech recognition")
-    # Run speech recognition
-    transcription = asr_pipeline(
-        file_path,
-        generate_kwargs={"task": "transcribe", "language": "korean"}
+    # Run diarization if pipeline is provided
+    diarization = None
+    if diarization_pipeline is not None:
+        diarization = await loop.run_in_executor(
+            None,
+            lambda: diarization_pipeline(file_path, num_speakers=num_speakers)
+        )
+    
+    # Run ASR
+    if asr_pipeline is None:
+        raise ValueError("ASR pipeline is required")
+        
+    chunks = await loop.run_in_executor(
+        None,
+        lambda: asr_pipeline(file_path, chunk_length_s=30, stride_length_s=5)
     )
+    print("chunks:", chunks)  # 디버깅 로그 추가
     
-    return diarization, transcription["chunks"]
+    if chunks is None:
+        raise ValueError("ASR pipeline returned None")
+    
+    return diarization, chunks
 
-def align_segments(diarization, whisper_chunks):
-    """Align speaker segments with transcribed text."""
+async def align_segments(diarization: Any, whisper_chunks: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+    """
+    Align speaker segments with transcribed text.
+    
+    Args:
+        diarization: Diarization results
+        whisper_chunks: List of transcribed chunks with timestamps
+        
+    Returns:
+        List of aligned segments with speaker, text, and timestamps
+    """
     aligned = []
     
     for segment, _, speaker in diarization.itertracks(yield_label=True):
@@ -85,8 +127,8 @@ def align_segments(diarization, whisper_chunks):
             aligned.append({
                 "speaker": speaker,
                 "text": " ".join(segment_text),
-                "start": segment.start,
-                "end": segment.end
+                "start": float(segment.start),
+                "end": float(segment.end)
             })
     
     return aligned

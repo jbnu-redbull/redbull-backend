@@ -1,9 +1,10 @@
-from typing import Type, Optional, List
+from typing import Type, Optional, List, Any
 from pydantic import BaseModel
 from datetime import datetime
 
 from .client import SyncSQLiteClient, AsyncSQLiteClient
 from .schema import TABLE_MODELS
+from app.repository.schema import STTResult
 
 # ─────────────────────────────
 # SQL 생성 유틸
@@ -110,9 +111,15 @@ class AsyncTableManager:
         cursor = await self.client.execute(query, values)
         return cursor.lastrowid
 
-    async def get_all(self, table: str) -> List[dict]:
-        rows = await self.client.fetchall(f"SELECT * FROM {table}")
-        return [dict(row) for row in rows]
+    async def get_all(self, table: str) -> List[Any]:
+        """Get all rows from a table."""
+        query = f"SELECT * FROM {table}"
+        cursor = await self.client.execute(query)
+        rows = await cursor.fetchall()
+        
+        if table == "stt_result":
+            return [STTResult(**row) for row in rows]
+        return rows
 
     async def get_by_id(self, table: str, row_id: int) -> Optional[dict]:
         rows = await self.client.fetchall(f"SELECT * FROM {table} WHERE id = ?", (row_id,))
