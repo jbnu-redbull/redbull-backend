@@ -1,4 +1,4 @@
-from app.logger import NullLogger ## 응집성이 강화됨 주의
+from app.logger import NullLogger, ensure_logging_initialized
 
 from logging import getLogger
 
@@ -71,6 +71,7 @@ class SyncTableManager:
         self.logging = logging
 
         if self.logging:
+            ensure_logging_initialized()  # Initialize logging only when needed
             self.logger = getLogger(__name__ + ".SyncTableManager")
             self.logger.info(f"SyncTableManager initialized with client: {client}")
             self.logger.info(f"TABLE_DEFINITIONS: {TABLE_DEFINITIONS}")
@@ -156,6 +157,7 @@ class AsyncTableManager:
         self.logging = logging
 
         if self.logging:
+            ensure_logging_initialized()  # Initialize logging only when needed
             self.logger = getLogger(__name__ + ".AsyncTableManager")
             self.logger.info(f"AsyncTableManager initialized with client: {client}")
             self.logger.info(f"TABLE_DEFINITIONS: {TABLE_DEFINITIONS}")

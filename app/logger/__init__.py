@@ -12,7 +12,16 @@ class NullLogger:
 
 from .handler import start_logging, stop_logging, queue_handler
 
-start_logging()
-
+# Delay logging initialization
 import atexit
-atexit.register(stop_logging)
+def _initialize_logging():
+    start_logging()
+    atexit.register(stop_logging)
+
+# Use a simple flag to ensure we only initialize once
+_initialized = False
+def ensure_logging_initialized():
+    global _initialized
+    if not _initialized:
+        _initialize_logging()
+        _initialized = True
