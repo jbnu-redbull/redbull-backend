@@ -1,3 +1,5 @@
+# app/repository/schema.py
+
 from pydantic import BaseModel, Field
 from typing import Optional, List, Literal, Any
 from datetime import datetime, timezone, timedelta
@@ -32,9 +34,16 @@ class RedmineIssueLog(BaseModel):
     status: Literal["created", "failed", "pending"] = Field(..., description="상태")
     timestamp: Optional[datetime] = Field(default_factory=now_kst)
 
+class Log(BaseModel):
+    id: Optional[int] = Field(None, description="로그 ID")
+    module: str = Field(..., description="모듈 이름")
+    level: str = Field(..., description="로그 레벨")
+    message: str = Field(..., description="로그 메시지")
+    timestamp: datetime = Field(..., description="로그 시간")
 
 TABLE_MODELS = {
     "stt_result": STTResult,
     "meeting_analysis": MeetingAnalysis,
     "redmine_issue_log": RedmineIssueLog,
+    "log": Log
 }

@@ -21,6 +21,15 @@ class TestSyncTableManager(unittest.TestCase):
 
     def tearDown(self):
         self.client.close()
+    
+    def test_create_table(self):
+        tables = self.manager.get_tables()
+        self.assertEqual(tables, ["stt_result", "meeting_analysis", "redmine_issue_log", "log"])
+
+    def test_duplicated_table_creation(self):
+        self.manager.create_tables()
+        tables = self.manager.get_tables()
+        self.assertEqual(tables, ["stt_result", "meeting_analysis", "redmine_issue_log", "log"])
 
     def test_insert_and_get(self):
         model = STTResult(audio_file_path="test.wav", stt_text="hello")
