@@ -1,6 +1,4 @@
 # app/repository/__init__.py
-import atexit
-
 from .table import SyncTableManager, AsyncTableManager
 from .client import SyncSQLiteClient, AsyncSQLiteClient
 from .schema import TABLE_MODELS
@@ -42,6 +40,9 @@ async def cleanup_async_table_manager():
         _async_table_manager = None
 
 async def cleanup():
+    """
+    FASTAPI 생명주기에 맞춰서 사용용
+    """
     await cleanup_async_table_manager()
     cleanup_sync_table_manager()
 
