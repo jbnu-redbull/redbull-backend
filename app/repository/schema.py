@@ -9,13 +9,11 @@ KST = timezone(timedelta(hours=9))
 def now_kst() -> datetime:
     return datetime.now(tz=KST)
 
-
 class STTResult(BaseModel):
     id: Optional[int] = None
     audio_file_path: str = Field(..., description="오디오 파일 경로")
     stt_text: str = Field(..., description="STT 변환 결과 텍스트")
     created_at: Optional[datetime] = Field(default_factory=now_kst)
-
 
 class MeetingAnalysis(BaseModel):
     id: Optional[int] = None
@@ -24,7 +22,6 @@ class MeetingAnalysis(BaseModel):
     issue_list: List[Any] = Field(..., description="이슈 리스트 (JSON 형태)")
     created_at: Optional[datetime] = Field(default_factory=now_kst)
     user_id: str = Field(..., description="작성자 또는 요청자 ID")
-
 
 class RedmineIssueLog(BaseModel):
     id: Optional[int] = None

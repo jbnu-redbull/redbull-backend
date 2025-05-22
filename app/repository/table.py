@@ -1,6 +1,4 @@
-from app.logger import NullLogger, ensure_logging_initialized
-
-from logging import getLogger
+from logging import getLogger, NullHandler
 
 from typing import Type, Optional, List, Union, get_origin, get_args
 from pydantic import BaseModel
@@ -20,7 +18,6 @@ PYDANTIC_TYPE_MAP = {
     bool: "BOOLEAN",
     datetime: "TEXT",
 }
-
 
 def generate_create_sql(model: Type[BaseModel], table_name: str) -> str:
     fields = []
@@ -60,27 +57,29 @@ TABLE_DEFINITIONS = {
 # ─────────────────────────────
 
 class SyncTableManager:
-    @classmethod
-    def create(cls, client: SyncSQLiteClient, logging: bool = False):
-        self = cls(client, logging)
-        self.create_tables()
-        return self
-
-    def __init__(self, client: SyncSQLiteClient, logging: bool = False):
+    def __init__(self, client: SyncSQLiteClient, logging: bool = True):
         self.client = client
         self.logging = logging
 
+        self.logger = getLogger(__name__ + ".SyncTableManager")
+
         if self.logging:
-            ensure_logging_initialized()  # Initialize logging only when needed
-            self.logger = getLogger(__name__ + ".SyncTableManager")
             self.logger.info(f"SyncTableManager initialized with client: {client}")
             self.logger.info(f"TABLE_DEFINITIONS: {TABLE_DEFINITIONS}")
         else:
-            self.logger = NullLogger()
-        
-        self.create_tables()
+            self.logger.handlers.clear()
+            self.logger.propagate = False
+            self.logger.addHandler(NullHandler())
+
+    @classmethod
+    def create(cls, client: SyncSQLiteClient, logging: bool = True) -> 'SyncTableManager':
+        """동기 TableManager 인스턴스를 생성하고 테이블을 초기화합니다."""
+        instance = cls(client=client, logging=logging)
+        instance.create_tables()
+        return instance
 
     def is_table_exists(self, table: str) -> bool:
+        self.logger.debug(f"Checking if table {table} exists...")
         return self.client.execute(f"SELECT name FROM sqlite_master WHERE type='table' AND name='{table}'").fetchone() is not None
 
     def get_tables(self) -> List[str]:
@@ -102,16 +101,13 @@ class SyncTableManager:
 
     def insert(self, table: str, model: BaseModel) -> int:
         self.logger.debug(f"Inserting data into {table}...")
-        
         data = model.model_dump(exclude_unset=True)
         keys = ", ".join(data.keys())
         placeholders = ", ".join(["?"] * len(data))
         values = tuple(data.values())
         query = f"INSERT INTO {table} ({keys}) VALUES ({placeholders})"
         cursor = self.client.execute(query, values)
-        
         self.logger.debug(f"Data inserted into {table} successfully")
-
         return cursor.lastrowid
 
     def get_all(self, table: str) -> List[dict]:
@@ -146,23 +142,26 @@ class SyncTableManager:
 # ─────────────────────────────
 
 class AsyncTableManager:
-    @classmethod
-    async def create(cls, client: AsyncSQLiteClient, logging: bool = True):
-        self = cls(client, logging)
-        await self.create_tables()
-        return self
-
     def __init__(self, client: AsyncSQLiteClient, logging: bool = True):
         self.client = client
         self.logging = logging
 
+        self.logger = getLogger(__name__ + ".AsyncTableManager")
+
         if self.logging:
-            ensure_logging_initialized()  # Initialize logging only when needed
-            self.logger = getLogger(__name__ + ".AsyncTableManager")
             self.logger.info(f"AsyncTableManager initialized with client: {client}")
             self.logger.info(f"TABLE_DEFINITIONS: {TABLE_DEFINITIONS}")
         else:
-            self.logger = NullLogger()
+            self.logger.handlers.clear()
+            self.logger.propagate = False
+            self.logger.addHandler(NullHandler())
+
+    @classmethod
+    async def create(cls, client: AsyncSQLiteClient, logging: bool = True) -> 'AsyncTableManager':
+        """비동기 TableManager 인스턴스를 생성하고 테이블을 초기화합니다."""
+        instance = cls(client=client, logging=logging)
+        await instance.create_tables()
+        return instance
 
     async def is_table_exists(self, table: str) -> bool:
         cursor = await self.client.execute(

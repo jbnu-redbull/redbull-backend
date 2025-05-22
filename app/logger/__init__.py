@@ -1,27 +1,19 @@
-import logging
-
-class NullLogger:
-    def debug(self, *args, **kwargs): pass
-    def info(self, *args, **kwargs): pass
-    def warning(self, *args, **kwargs): pass
-    def error(self, *args, **kwargs): pass
-    def critical(self, *args, **kwargs): pass
-    def exception(self, *args, **kwargs): pass
-    def log(self, *args, **kwargs): pass
-    def isEnabledFor(self, level): return False
-
-from .handler import start_logging, stop_logging, queue_handler
-
-# Delay logging initialization
 import atexit
-def _initialize_logging():
-    start_logging()
-    atexit.register(stop_logging)
+import time
 
-# Use a simple flag to ensure we only initialize once
-_initialized = False
-def ensure_logging_initialized():
-    global _initialized
-    if not _initialized:
-        _initialize_logging()
-        _initialized = True
+from .settings import logger_setup
+
+def initialize_logging():
+    logger_setup()
+
+from .queue import stop_queue_listener
+
+def cleanup():
+    print("Starting cleanup...")
+    # 큐 리스너를 중지하고 완전히 종료될 때까지 대기
+    stop_queue_listener()
+    print("Cleanup completed.")
+
+atexit.register(cleanup)
+
+__all__ = ["initialize_logging"]
