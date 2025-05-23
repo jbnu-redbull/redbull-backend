@@ -1,4 +1,6 @@
-from typing import Type, Optional, List
+from logging import getLogger, NullHandler
+
+from typing import Type, Optional, List, Union, get_origin, get_args
 from pydantic import BaseModel
 from datetime import datetime
 
@@ -24,12 +26,21 @@ def generate_create_sql(model: Type[BaseModel], table_name: str) -> str:
             fields.append("id INTEGER PRIMARY KEY AUTOINCREMENT")
             continue
 
-        type_ = field.annotation
-        origin = getattr(type_, "__origin__", type_)
-        db_type = PYDANTIC_TYPE_MAP.get(origin, "TEXT")
+        # 타입 추론 (Optional[int] → int)
+        annotation = field.annotation
+        origin = get_origin(annotation)
+        args = get_args(annotation)
+
+        if origin is Union and type(None) in args:
+            # Optional[...] 처리
+            actual_type = next((arg for arg in args if arg is not type(None)), str)
+        else:
+            actual_type = annotation
+
+        db_type = PYDANTIC_TYPE_MAP.get(actual_type, "TEXT")
 
         col_def = f"{name} {db_type}"
-        if field.is_required():
+        if field.default is None and field.default_factory is None:
             col_def += " NOT NULL"
         fields.append(col_def)
 
@@ -46,43 +57,84 @@ TABLE_DEFINITIONS = {
 # ─────────────────────────────
 
 class SyncTableManager:
-    def __init__(self, client: SyncSQLiteClient):
+    def __init__(self, client: SyncSQLiteClient, logging: bool = True):
         self.client = client
+        self.logging = logging
+
+        self.logger = getLogger(__name__ + ".SyncTableManager")
+
+        if self.logging:
+            self.logger.info(f"SyncTableManager initialized with client: {client}")
+            self.logger.info(f"TABLE_DEFINITIONS: {TABLE_DEFINITIONS}")
+        else:
+            self.logger.handlers.clear()
+            self.logger.propagate = False
+            self.logger.addHandler(NullHandler())
+
+    @classmethod
+    def create(cls, client: SyncSQLiteClient, logging: bool = True) -> 'SyncTableManager':
+        """동기 TableManager 인스턴스를 생성하고 테이블을 초기화합니다."""
+        instance = cls(client=client, logging=logging)
+        instance.create_tables()
+        return instance
+
+    def is_table_exists(self, table: str) -> bool:
+        self.logger.debug(f"Checking if table {table} exists...")
+        return self.client.execute(f"SELECT name FROM sqlite_master WHERE type='table' AND name='{table}'").fetchone() is not None
+
+    def get_tables(self) -> List[str]:
+        self.logger.debug("Get tables from client")
+        return list(TABLE_DEFINITIONS.keys())
 
     def create_tables(self):
+        self.logger.debug("Creating tables...")
         for table, sql in TABLE_DEFINITIONS.items():
-            self.client.execute(sql)
+            if not self.is_table_exists(table):
+                self.client.execute(sql)
+        self.logger.debug("Tables created successfully")
 
     def drop_tables(self):
+        self.logger.debug("Dropping tables...")
         for table in TABLE_DEFINITIONS:
             self.client.execute(f"DROP TABLE IF EXISTS {table};")
+        self.logger.debug("Tables dropped successfully")
 
     def insert(self, table: str, model: BaseModel) -> int:
+        self.logger.debug(f"Inserting data into {table}...")
         data = model.model_dump(exclude_unset=True)
         keys = ", ".join(data.keys())
         placeholders = ", ".join(["?"] * len(data))
         values = tuple(data.values())
         query = f"INSERT INTO {table} ({keys}) VALUES ({placeholders})"
         cursor = self.client.execute(query, values)
+        self.logger.debug(f"Data inserted into {table} successfully")
         return cursor.lastrowid
 
     def get_all(self, table: str) -> List[dict]:
+        self.logger.debug(f"Getting all data from {table}...")
         rows = self.client.fetchall(f"SELECT * FROM {table}")
+        self.logger.debug(f"Data fetched from {table} successfully")
         return [dict(row) for row in rows]
 
     def get_by_id(self, table: str, row_id: int) -> Optional[dict]:
+        self.logger.debug(f"Getting data from {table} with id {row_id}...")
         rows = self.client.fetchall(f"SELECT * FROM {table} WHERE id = ?", (row_id,))
+        self.logger.debug(f"Data fetched from {table} with id {row_id} successfully")
         return dict(rows[0]) if rows else None
 
     def update_by_id(self, table: str, row_id: int, new_data: dict) -> bool:
+        self.logger.debug(f"Updating data in {table} with id {row_id}...")
         sets = ", ".join([f"{k}=?" for k in new_data.keys()])
         values = tuple(new_data.values()) + (row_id,)
         query = f"UPDATE {table} SET {sets} WHERE id = ?"
         self.client.execute(query, values)
+        self.logger.debug(f"Data updated in {table} with id {row_id} successfully")
         return True
 
     def delete_by_id(self, table: str, row_id: int) -> bool:
+        self.logger.debug(f"Deleting data from {table} with id {row_id}...")
         self.client.execute(f"DELETE FROM {table} WHERE id = ?", (row_id,))
+        self.logger.debug(f"Data deleted from {table} with id {row_id} successfully")
         return True
 
 # ─────────────────────────────
@@ -90,41 +142,87 @@ class SyncTableManager:
 # ─────────────────────────────
 
 class AsyncTableManager:
-    def __init__(self, client: AsyncSQLiteClient):
+    def __init__(self, client: AsyncSQLiteClient, logging: bool = True):
         self.client = client
+        self.logging = logging
 
+        self.logger = getLogger(__name__ + ".AsyncTableManager")
+
+        if self.logging:
+            self.logger.info(f"AsyncTableManager initialized with client: {client}")
+            self.logger.info(f"TABLE_DEFINITIONS: {TABLE_DEFINITIONS}")
+        else:
+            self.logger.handlers.clear()
+            self.logger.propagate = False
+            self.logger.addHandler(NullHandler())
+
+    @classmethod
+    async def create(cls, client: AsyncSQLiteClient, logging: bool = True) -> 'AsyncTableManager':
+        """비동기 TableManager 인스턴스를 생성하고 테이블을 초기화합니다."""
+        instance = cls(client=client, logging=logging)
+        await instance.create_tables()
+        return instance
+
+    async def is_table_exists(self, table: str) -> bool:
+        cursor = await self.client.execute(
+            f"SELECT name FROM sqlite_master WHERE type='table' AND name='{table}'"
+        )
+        row = await cursor.fetchone()
+        return row is not None
+    
+    async def get_tables(self) -> List[str]:
+        self.logger.debug("Get tables from client")
+        return list(TABLE_DEFINITIONS.keys())
+        
     async def create_tables(self):
+        self.logger.debug("Creating tables...")
         for table, sql in TABLE_DEFINITIONS.items():
-            await self.client.execute(sql)
+            if not await self.is_table_exists(table):
+                await self.client.execute(sql)
+        self.logger.debug("Tables created successfully")
 
     async def drop_tables(self):
+        self.logger.debug("Dropping tables...")
         for table in TABLE_DEFINITIONS:
             await self.client.execute(f"DROP TABLE IF EXISTS {table};")
+        self.logger.debug("Tables dropped successfully")
 
     async def insert(self, table: str, model: BaseModel) -> int:
+        self.logger.debug(f"Inserting data into {table}...")
+
         data = model.model_dump(exclude_unset=True)
         keys = ", ".join(data.keys())
         placeholders = ", ".join(["?"] * len(data))
         values = tuple(data.values())
         query = f"INSERT INTO {table} ({keys}) VALUES ({placeholders})"
         cursor = await self.client.execute(query, values)
+
+        self.logger.debug(f"Data inserted into {table} successfully")
         return cursor.lastrowid
 
     async def get_all(self, table: str) -> List[dict]:
+        self.logger.debug(f"Getting all data from {table}...")
         rows = await self.client.fetchall(f"SELECT * FROM {table}")
+        self.logger.debug(f"Data fetched from {table} successfully")
         return [dict(row) for row in rows]
 
     async def get_by_id(self, table: str, row_id: int) -> Optional[dict]:
+        self.logger.debug(f"Getting data from {table} with id {row_id}...")
         rows = await self.client.fetchall(f"SELECT * FROM {table} WHERE id = ?", (row_id,))
+        self.logger.debug(f"Data fetched from {table} with id {row_id} successfully")
         return dict(rows[0]) if rows else None
 
     async def update_by_id(self, table: str, row_id: int, new_data: dict) -> bool:
+        self.logger.debug(f"Updating data in {table} with id {row_id}...")
         sets = ", ".join([f"{k}=?" for k in new_data.keys()])
         values = tuple(new_data.values()) + (row_id,)
         query = f"UPDATE {table} SET {sets} WHERE id = ?"
         await self.client.execute(query, values)
+        self.logger.debug(f"Data updated in {table} with id {row_id} successfully")
         return True
 
     async def delete_by_id(self, table: str, row_id: int) -> bool:
+        self.logger.debug(f"Deleting data from {table} with id {row_id}...")
         await self.client.execute(f"DELETE FROM {table} WHERE id = ?", (row_id,))
+        self.logger.debug(f"Data deleted from {table} with id {row_id} successfully")
         return True

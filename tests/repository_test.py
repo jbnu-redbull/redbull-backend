@@ -10,7 +10,7 @@ sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "..")
 from app.repository.client import SyncSQLiteClient, AsyncSQLiteClient
 from app.repository.table import SyncTableManager, AsyncTableManager
 from app.repository.schema import STTResult
-
+from app.repository import cleanup_sync_table_manager, cleanup_async_table_manager
 
 class TestSyncTableManager(unittest.TestCase):
     def setUp(self):
@@ -21,6 +21,16 @@ class TestSyncTableManager(unittest.TestCase):
 
     def tearDown(self):
         self.client.close()
+        cleanup_sync_table_manager()
+    
+    def test_create_table(self):
+        tables = self.manager.get_tables()
+        self.assertEqual(tables, ["stt_result", "meeting_analysis", "redmine_issue_log", "log"])
+
+    def test_duplicated_table_creation(self):
+        self.manager.create_tables()
+        tables = self.manager.get_tables()
+        self.assertEqual(tables, ["stt_result", "meeting_analysis", "redmine_issue_log", "log"])
 
     def test_insert_and_get(self):
         model = STTResult(audio_file_path="test.wav", stt_text="hello")
@@ -51,6 +61,7 @@ class TestAsyncTableManager(unittest.IsolatedAsyncioTestCase):
 
     async def asyncTearDown(self):
         await self.client.close()
+        await cleanup_async_table_manager()
 
     async def test_insert_and_get(self):
         model = STTResult(audio_file_path="async.wav", stt_text="hello async")

@@ -10,6 +10,7 @@
 * `client.py`: 동기/비동기 SQLite 클라이언트를 정의합니다.
 * `schema.py`: 테이블에 매핑되는 Pydantic 모델을 정의합니다.
 * `table.py`: 테이블 생성 및 CRUD 로직을 관리하는 TableManager를 제공합니다.
+* `__init__.py`: 싱글톤 패턴으로 TableManager 인스턴스를 관리하고 리소스 정리를 담당합니다.
 
 ---
 
@@ -127,41 +128,95 @@
 
 ---
 
+## 🔄 싱글톤 패턴 (`__init__.py`)
+
+### TableManager 인스턴스 관리
+
+* `get_sync_table_manager()`: 동기 TableManager 싱글톤 인스턴스 반환
+* `get_async_table_manager()`: 비동기 TableManager 싱글톤 인스턴스 반환
+
+### 리소스 정리
+
+* `cleanup()`: 모든 TableManager 인스턴스의 리소스를 정리
+
+---
+
 ## 📌 예시 코드
+
+### 기본 사용법
 
 ```python
 # 동기 클라이언트 예시
-from client import SyncSQLiteClient
-from table import SyncTableManager
-from schema import STTResult
+from app.repository import get_sync_table_manager
+from app.repository.schema import STTResult
 
-client = SyncSQLiteClient()
-client.connect()
-manager = SyncTableManager(client)
-manager.create_tables()
-
+manager = get_sync_table_manager()
 result = STTResult(audio_file_path="a.wav", stt_text="안녕하세요")
 row_id = manager.insert("stt_result", result)
 print("Inserted ID:", row_id)
-client.close()
 ```
 
 ```python
 # 비동기 클라이언트 예시
-from client import AsyncSQLiteClient
-from table import AsyncTableManager
-from schema import STTResult
+from app.repository import get_async_table_manager
+from app.repository.schema import STTResult
 
 async def main():
-    client = AsyncSQLiteClient()
-    await client.connect()
-    manager = AsyncTableManager(client)
-    await manager.create_tables()
-
+    manager = await get_async_table_manager()
     result = STTResult(audio_file_path="a.wav", stt_text="안녕하세요")
     row_id = await manager.insert("stt_result", result)
     print("Inserted ID:", row_id)
-    await client.close()
+```
+
+### FastAPI 통합
+
+```python
+from fastapi import FastAPI
+from app.repository import get_async_table_manager, get_sync_table_manager, cleanup
+
+app = FastAPI()
+
+@app.on_event("startup")
+async def startup():
+    # 필요한 매니저 초기화
+    get_async_table_manager()
+    get_sync_table_manager()
+
+@app.on_event("shutdown")
+async def shutdown():
+    # 리소스 정리
+    await cleanup()
+```
+
+### 테스트
+
+```python
+import unittest
+from app.repository import cleanup
+from app.repository.table import SyncTableManager, AsyncTableManager
+from app.repository.client import SyncSQLiteClient, AsyncSQLiteClient
+
+class TestSyncTableManager(unittest.TestCase):
+    def setUp(self):
+        self.client = SyncSQLiteClient(":memory:")
+        self.client.connect()
+        self.manager = SyncTableManager(self.client)
+        self.manager.create_tables()
+
+    def tearDown(self):
+        self.client.close()
+        cleanup()  # 리소스 정리
+
+class TestAsyncTableManager(unittest.IsolatedAsyncioTestCase):
+    async def asyncSetUp(self):
+        self.client = AsyncSQLiteClient(":memory:")
+        await self.client.connect()
+        self.manager = AsyncTableManager(self.client)
+        await self.manager.create_tables()
+
+    async def asyncTearDown(self):
+        await self.client.close()
+        await cleanup()  # 리소스 정리
 ```
 
 ---
@@ -170,6 +225,8 @@ async def main():
 
 * `TABLE_MODELS` dict: 테이블 이름과 모델의 매핑
 * 모든 테이블은 `id INTEGER PRIMARY KEY AUTOINCREMENT` 필드를 가집니다.
+* 싱글톤 패턴을 사용하여 TableManager 인스턴스를 관리합니다.
+* FastAPI와 같은 비동기 프레임워크와 통합이 용이합니다.
 
 ---
 
@@ -178,6 +235,7 @@ async def main():
 * Where 조건 기반 검색 기능 추가
 * 스키마 마이그레이션 지원
 * 인덱스 및 제약조건 생성 기능
+* 테스트 커버리지 개선
 
 ---
 
