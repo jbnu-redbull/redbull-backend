@@ -6,15 +6,25 @@ from typing import Dict, List, Any, Tuple, Optional
 import asyncio
 from pyannote.core import Annotation
 
+def get_device():
+    """Get the appropriate device for model inference."""
+    if torch.cuda.is_available():
+        return "cuda"
+    return "cpu"
+
 async def initialize_diarization():
     """Initialize the speaker diarization pipeline."""
+    device = get_device()
+    print(f"Initializing diarization pipeline with device: {device}")
+    
     # Run in thread pool since Pipeline.from_pretrained is blocking
     loop = asyncio.get_event_loop()
     diarization_pipeline = await loop.run_in_executor(
         None,
         lambda: Pipeline.from_pretrained(
-        stt_settings.diarization_model,
-        use_auth_token=stt_settings.hf_token
+            stt_settings.diarization_model,
+            use_auth_token=stt_settings.hf_token,
+            device=device
         )
     )
     return diarization_pipeline
@@ -22,21 +32,25 @@ async def initialize_diarization():
 async def initialize_asr(device=None):
     """Initialize the Whisper ASR pipeline."""
     if device is None:
-        device = stt_settings.device
+        device = get_device()
         
+    print(f"Initializing ASR pipeline with device: {device}")
+    
     # Run in thread pool since hf_pipeline is blocking
     loop = asyncio.get_event_loop()
     asr_pipeline = await loop.run_in_executor(
         None,
         lambda: hf_pipeline(
-        "automatic-speech-recognition",
-        model=stt_settings.whisper_model_path,
-        device=device,
-        chunk_length_s=stt_settings.chunk_length_s,
-        stride_length_s=stt_settings.stride_length_s,
-        return_timestamps=True
+            "automatic-speech-recognition",
+            model=stt_settings.whisper_model_path,
+            device=device,
+            chunk_length_s=30,
+            stride_length_s=5,
+            return_timestamps=True,
+            torch_dtype=torch.float16 if device == "cuda" else torch.float32  # Use FP16 for GPU
         )
     )
+    print("ASR pipeline initialized successfully")
     return asr_pipeline
 
 async def process_audio(
@@ -44,7 +58,7 @@ async def process_audio(
     diarization_pipeline: Optional[Pipeline] = None,
     asr_pipeline: Optional[Pipeline] = None,
     num_speakers: int = 2
-) -> Tuple[Optional[Any], List[Dict]]:
+) -> Tuple[Optional[Any], Dict[str, Any]]:
     """
     Process audio file with diarization and ASR.
     
@@ -55,7 +69,7 @@ async def process_audio(
         num_speakers: Number of speakers to detect
         
     Returns:
-        Tuple of (diarization results, ASR chunks)
+        Tuple of (diarization results, ASR result)
     """
     loop = asyncio.get_event_loop()
     
@@ -70,17 +84,22 @@ async def process_audio(
     # Run ASR
     if asr_pipeline is None:
         raise ValueError("ASR pipeline is required")
-        
-    chunks = await loop.run_in_executor(
-        None,
-        lambda: asr_pipeline(file_path, chunk_length_s=30, stride_length_s=5)
-    )
-    print("chunks:", chunks)  # 디버깅 로그 추가
     
-    if chunks is None:
+    print(f"Processing audio file: {file_path}")
+    result = await loop.run_in_executor(
+        None,
+        lambda: asr_pipeline(
+            file_path,
+            chunk_length_s=30,
+            stride_length_s=5
+        )
+    )
+    print("Audio processing completed")
+    
+    if result is None:
         raise ValueError("ASR pipeline returned None")
     
-    return diarization, chunks
+    return diarization, result
 
 async def align_segments(diarization: Any, whisper_chunks: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
     """

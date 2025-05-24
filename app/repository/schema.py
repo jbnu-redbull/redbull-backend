@@ -7,6 +7,17 @@ KST = timezone(timedelta(hours=9))
 def now_kst() -> datetime:
     return datetime.now(tz=KST)
 
+# 테이블 정의
+TABLE_DEFINITIONS = {
+    "stt_result": """
+        CREATE TABLE IF NOT EXISTS stt_result (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            audio_file_path TEXT NOT NULL,
+            stt_text TEXT NOT NULL,
+            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+        );
+    """
+}
 
 class STTResult(BaseModel):
     id: Optional[int] = None
