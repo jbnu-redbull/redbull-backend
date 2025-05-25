@@ -1,6 +1,9 @@
 import torch
 from pyannote.audio import Pipeline
-from transformers import pipeline as hf_pipeline
+import subprocess
+import json
+import os
+from pathlib import Path
 from .settings import stt_settings
 from typing import Dict, List, Any, Tuple, Optional
 import asyncio
@@ -27,55 +30,34 @@ async def initialize_diarization():
         lambda: Pipeline.from_pretrained(
             stt_settings.diarization_model,
             use_auth_token=stt_settings.hf_token,
-            device=device,
-            torch_dtype=torch.int8  # Use 8-bit quantization
+            device=device
         )
     )
     return diarization_pipeline
 
-async def initialize_asr(device=None):
-    """Initialize the Whisper ASR pipeline."""
-    if device is None:
-        device = get_device()
-        
-    print(f"Initializing ASR pipeline with device: {device}")
-    
-    # Run in thread pool since hf_pipeline is blocking
-    loop = asyncio.get_event_loop()
-    asr_pipeline = await loop.run_in_executor(
-        None,
-        lambda: hf_pipeline(
-            "automatic-speech-recognition",
-            model=stt_settings.whisper_model_path,
-            device=device,
-            chunk_length_s=30,
-            stride_length_s=5,
-            return_timestamps=True,
-            load_in_8bit=True,  # Use 8-bit quantization
-            torch_dtype=torch.int8  # Force int8 dtype
-        )
-    )
-    print("ASR pipeline initialized successfully")
-    return asr_pipeline
-
 async def process_audio(
     file_path: str,
     diarization_pipeline: Optional[Pipeline] = None,
-    asr_pipeline: Optional[Pipeline] = None,
     num_speakers: int = 2
 ) -> Tuple[Optional[Any], Dict[str, Any]]:
     """
-    Process audio file with diarization and ASR.
+    Process audio file with diarization and ASR using whisper.cpp.
     
     Args:
         file_path: Path to audio file
         diarization_pipeline: Speaker diarization pipeline
-        asr_pipeline: ASR pipeline
         num_speakers: Number of speakers to detect
         
     Returns:
         Tuple of (diarization results, ASR result)
     """
+    # Check if whisper.cpp and model exist
+    whisper_main = stt_settings.whisper_cpp_dir / "main"
+    if not whisper_main.exists():
+        raise FileNotFoundError(f"whisper.cpp main executable not found at {whisper_main}")
+    if not stt_settings.whisper_model_path.exists():
+        raise FileNotFoundError(f"whisper model not found at {stt_settings.whisper_model_path}")
+
     loop = asyncio.get_event_loop()
     
     # Run diarization if pipeline is provided
@@ -86,24 +68,43 @@ async def process_audio(
             lambda: diarization_pipeline(file_path, num_speakers=num_speakers)
         )
     
-    # Run ASR
-    if asr_pipeline is None:
-        raise ValueError("ASR pipeline is required")
-    
+    # Run whisper.cpp
     print(f"Processing audio file: {file_path}")
+    
+    # Create output file path
+    output_base = os.path.splitext(file_path)[0]
+    
+    # Run whisper.cpp command
+    cmd = [
+        str(whisper_main),
+        "-m", str(stt_settings.whisper_model_path),
+        "-t", "4",  # number of threads
+        "-f", file_path,
+        "-of", output_base,
+        "-otxt",
+        "-nt",  # no timestamps
+        "-np"   # no progress
+    ]
+    
     result = await loop.run_in_executor(
         None,
-        lambda: asr_pipeline(
-            file_path,
-            chunk_length_s=30,
-            stride_length_s=5
-        )
+        lambda: subprocess.run(cmd, capture_output=True, text=True)
     )
+    
+    if result.returncode != 0:
+        raise ValueError(f"Whisper.cpp failed: {result.stderr}")
+    
+    # Read the output file
+    with open(f"{output_base}.txt", "r", encoding="utf-8") as f:
+        text = f.read()
+    
+    # Format result similar to the original whisper output
+    result = {
+        "text": text,
+        "chunks": [{"text": text, "timestamp": None}]
+    }
+    
     print("Audio processing completed")
-    
-    if result is None:
-        raise ValueError("ASR pipeline returned None")
-    
     return diarization, result
 
 async def align_segments(diarization: Any, whisper_chunks: List[Dict[str, Any]]) -> List[Dict[str, Any]]:

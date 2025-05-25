@@ -179,3 +179,7 @@ cython_debug/
 nohup.out
 
 
+.python-version
+pyproject.toml
+uv.lock
+database.db
