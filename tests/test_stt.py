@@ -8,8 +8,8 @@ from app.repository.client import AsyncSQLiteClient
 from app.repository.table import AsyncTableManager
 
 # Test audio file path (absolute path for testing)
-TEST_AUDIO_PATH = str(Path(__file__).parent / "test_data" / "original_test_audio.wav")
-TEST_OUTPUT_PATH = str(Path(__file__).parent / "test_data" / "test_output.txt")
+TEST_AUDIO_PATH = str(Path(__file__).parent / "test_data" / "redbull.wav")
+TEST_OUTPUT_PATH = str(Path(__file__).parent / "test_data" / "redbull.txt")
 
 @pytest.fixture
 def setup_test_audio():

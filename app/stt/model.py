@@ -9,8 +9,11 @@ from pyannote.core import Annotation
 def get_device():
     """Get the appropriate device for model inference."""
     if torch.cuda.is_available():
+        print("CUDA is available")
         return "cuda"
-    return "cpu"
+    else:
+        print("CUDA is not available")
+        return "cpu"
 
 async def initialize_diarization():
     """Initialize the speaker diarization pipeline."""
@@ -24,7 +27,8 @@ async def initialize_diarization():
         lambda: Pipeline.from_pretrained(
             stt_settings.diarization_model,
             use_auth_token=stt_settings.hf_token,
-            device=device
+            device=device,
+            torch_dtype=torch.int8  # Use 8-bit quantization
         )
     )
     return diarization_pipeline
@@ -47,7 +51,8 @@ async def initialize_asr(device=None):
             chunk_length_s=30,
             stride_length_s=5,
             return_timestamps=True,
-            torch_dtype=torch.float16 if device == "cuda" else torch.float32  # Use FP16 for GPU
+            load_in_8bit=True,  # Use 8-bit quantization
+            torch_dtype=torch.int8  # Force int8 dtype
         )
     )
     print("ASR pipeline initialized successfully")
