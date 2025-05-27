@@ -58,15 +58,7 @@ class BaseProviderLLMSettings(BaseSettings):
                  provider_specific_kwargs: Dict[str, Any], # 이 Provider에 해당하는 kwargs만 필터링해서 받음
                  **provider_level_data: Any): # YAML의 provider 레벨 데이터 (models 제외)
         
-        # --- Temporary File Logging ---
-        log_file_path = PROJECT_ROOT / "debug_settings.log"
-        current_time = datetime.datetime.now().isoformat()
         provider_class_name = self.__class__.__name__
-
-        with open(log_file_path, "a", encoding="utf-8") as f_log:
-            f_log.write(f"\\n[{current_time}] Attempting to init {provider_class_name}\\n")
-            f_log.write(f"  provider_specific_kwargs: {provider_specific_kwargs}\\n")
-            f_log.write(f"  provider_level_data: {provider_level_data}\\n")
 
         # 기존 print문 유지 (stdout이 잘리지 않는 환경에서는 유용할 수 있음)
         print(f"DEBUG BaseProvider.__init__ ({provider_class_name}): provider_specific_kwargs={provider_specific_kwargs}, provider_level_data={provider_level_data}")
@@ -79,22 +71,13 @@ class BaseProviderLLMSettings(BaseSettings):
         try:
             # 기존 print문 유지
             print(f"DEBUG BaseProvider.__init__ ({provider_class_name}): About to call super().__init__ with {provider_level_data}")
-            with open(log_file_path, "a", encoding="utf-8") as f_log:
-                f_log.write(f"  [{current_time}] {provider_class_name} - Calling super().__init__ with: {provider_level_data}\\n")
-
+            
             super().__init__(**provider_level_data) # API 키, URL 등 프로바이더 레벨 설정 초기화
 
-            with open(log_file_path, "a", encoding="utf-8") as f_log:
-                f_log.write(f"  [{current_time}] {provider_class_name} - super().__init__ successful.\\n")
             # 기존 print문 유지
             print(f"DEBUG BaseProvider.__init__ ({provider_class_name}): super().__init__ called successfully")
 
         except Exception as e_super:
-            with open(log_file_path, "a", encoding="utf-8") as f_log:
-                f_log.write(f"  ERROR DURING super().__init__ for {provider_class_name} at {current_time}:\\n")
-                f_log.write(f"    Exception Type: {type(e_super).__name__}\\n")
-                f_log.write(f"    Exception Args: {e_super.args}\\n")
-                f_log.write(f"    Traceback:\\n{traceback.format_exc()}\\n")
             # 해당 예외를 다시 발생시켜서 LangChainSettings의 except 블록에서 처리되도록 함
             raise
 
@@ -160,23 +143,31 @@ class OllamaSettings(BaseProviderLLMSettings):
     model_provider_url: Optional[str] = None # Ollama는 API 키 대신 URL을 사용
     # Ollama 고유의 다른 설정들 추가 가능
 
+class VLLMSettings(BaseProviderLLMSettings):
+    model_provider: Literal["vllm"] = "vllm"
+    model_provider_url: Optional[str] = None # vLLM 서버의 base URL
+    model_api_key: Optional[str] = None # vLLM 서버가 API 키를 요구하는 경우 (OpenAI 호환)
+    # vLLM의 OpenAI 호환 엔드포인트에서 지원하는 다른 파라미터가 있다면 여기에 추가 가능
+
 
 PROVIDER_SETTINGS_MAP: Dict[str, Type[BaseProviderLLMSettings]] = {
     "openai": OpenAISettings,
     "anthropic": AnthropicSettings,
     "ollama": OllamaSettings,
+    "vllm": VLLMSettings, # vLLM 설정 클래스 추가
 }
 
 # --- 메인 LangChainSettings 클래스 ---
 
 class LangChainSettings(BaseSettings):
-    active_model_provider: Optional[Literal["openai", "anthropic", "ollama"]] = None
+    active_model_provider: Optional[Literal["openai", "anthropic", "ollama", "vllm"]] = None # vllm 추가
     
     retry_settings: RetrySettings = Field(default_factory=RetrySettings)
     
     openai: Optional[OpenAISettings] = None
     anthropic: Optional[AnthropicSettings] = None
     ollama: Optional[OllamaSettings] = None
+    vllm: Optional[VLLMSettings] = None # vllm 설정 필드 추가
     
     provider_configurations: Dict[str, Any] = Field(default_factory=dict, 
                                                      description="config.yaml의 llm_providers 전체 내용을 담는 딕셔너리")
@@ -296,15 +287,6 @@ class LangChainSettings(BaseSettings):
                 setattr(self, provider_name, instance)
                 print(f"--->>> LangChainSettings: Successfully initialized {provider_name} <<<---")
             except Exception as e:
-                # 파일 로깅 추가
-                log_file_path = PROJECT_ROOT / "debug_settings.log"
-                current_time = datetime.datetime.now().isoformat()
-                with open(log_file_path, "a", encoding="utf-8") as f_log:
-                    f_log.write(f"\\nERROR DURING LangChainSettings provider init for {provider_name} at {current_time}:\\n")
-                    f_log.write(f"  Exception Type: {type(e).__name__}\\n")
-                    f_log.write(f"  Exception Args: {e.args}\\n")
-                    f_log.write(f"  Traceback:\\n{traceback.format_exc()}\\n")
-
                 print(f"--->>> LangChainSettings EXCEPTION for {provider_name}: {type(e).__name__} - {str(e)} <<<---")
                 logger.error(f"Failed to initialize settings for provider {provider_name}: {e}", exc_info=True)
                 setattr(self, provider_name, None)
@@ -373,21 +355,31 @@ class LangChainSettings(BaseSettings):
 
 # 전역 설정 인스턴스
 try:
+    print("[settings.py] Attempting to initialize LangChainSettings...")
     langchain_settings = LangChainSettings()
+    print("[settings.py] LangChainSettings initialized.")
     # 초기화 후 로그 기록
     if langchain_settings and langchain_settings.current_llm_settings:
+        print("[settings.py] langchain_settings and current_llm_settings are valid. Attempting logger.info and logger.debug...")
         logger.info(f"Default LangChainSettings initialized for provider: {langchain_settings.active_model_provider}")
         logger.debug(f"Active LLM Settings: Provider='{langchain_settings.model_provider}', "
                      f"Alias='{langchain_settings.model_alias}', Name='{langchain_settings.model_name}', "
                      f"APIKeySet={langchain_settings.model_api_key is not None}, "
                      f"Temp='{langchain_settings.model_temperature}', URL='{langchain_settings.model_provider_url}'")
+        print("[settings.py] logger.info and logger.debug attempted.")
     elif langchain_settings:
+         print("[settings.py] langchain_settings is valid but current_llm_settings is not. Attempting logger.warning...")
          logger.warning(f"Default LangChainSettings initialized, but no current LLM settings for active provider: {langchain_settings.active_model_provider}")
+         print("[settings.py] logger.warning attempted.")
+    else:
+        print("[settings.py] langchain_settings is None after initialization attempt (should not happen here).")
 
 except ValueError as e:
+    print(f"[settings.py] CRITICAL - ValueError during LangChainSettings initialization: {e}")
     logger.error(f"CRITICAL: Failed to initialize default LangChainSettings due to ValueError: {e}")
     langchain_settings = None 
 except Exception as e:
+    print(f"[settings.py] CRITICAL - Exception during LangChainSettings initialization: {e}")
     logger.error(f"CRITICAL: An unexpected error occurred during LangChainSettings initialization: {e}", exc_info=True)
     langchain_settings = None
 

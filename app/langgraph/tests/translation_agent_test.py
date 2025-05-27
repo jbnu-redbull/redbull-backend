@@ -292,7 +292,7 @@ if __name__ == '__main__':
     parser.add_argument(
         "--llm-provider", 
         type=str, 
-        choices=["openai", "anthropic", "ollama"], 
+        choices=["openai", "anthropic", "ollama", "vllm"], 
         help="Specify the LLM provider."
     )
     parser.add_argument(
