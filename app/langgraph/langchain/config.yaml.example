@@ -1,0 +1,70 @@
+llm_settings:
+  # 기본적으로 사용할 LLM 프로바이더를 지정합니다.
+  # 사용 가능한 값: "openai", "anthropic", "ollama"
+  model_provider: "openai"
+
+  # 재시도 관련 설정
+  retry_settings:
+    retry_max_attempts: 3               # 최대 재시도 횟수
+    retry_wait_multiplier: 1            # 재시도 간 대기 시간 배수 (지수 백오프)
+    retry_min_interval_seconds: 1       # 최소 재시도 대기 시간 (초)
+    retry_max_interval_seconds: 60      # 최대 재시도 대기 시간 (초)
+
+  # 각 LLM 프로바이더별 상세 설정
+  llm_providers:
+    openai:
+      # OpenAI 프로바이더의 기본 모델 이름
+      default_model_name: "gpt_4o_mini"
+      # 이 API 키는 이 프로바이더의 모든 OpenAI 모델에 공통으로 사용됩니다.
+      # 모델별로 다른 API 키를 사용해야 한다면, 각 모델 설정 내에 model_api_key를 정의할 수 있습니다.
+      model_api_key: "sk-YOUR_OPENAI_API_KEY_REPLACE_ME" 
+      models:
+        gpt_4o_mini:
+          model_name: "gpt-4o-mini" # Langchain 라이브러리가 인식하는 실제 모델명
+          model_temperature: 0.7
+          model_max_tokens: 2000
+          model_timeout: 45
+        gpt_3_5_turbo:
+          model_name: "gpt-3.5-turbo"
+          model_temperature: 0.6
+          model_max_tokens: 1000
+          model_timeout: 25
+          # 만약 이 모델만 다른 API 키를 사용한다면 여기에 정의:
+          # model_api_key: "sk-SPECIFIC_KEY_FOR_GPT3_5"
+
+    anthropic:
+      default_model_name: "claude_3_sonnet"
+      model_api_key: "sk-ant-YOUR_ANTHROPIC_API_KEY_REPLACE_ME"
+      models:
+        claude_3_sonnet:
+          model_name: "claude-3-sonnet-20240229"
+          model_temperature: 0.75
+          model_max_tokens: 1800
+        claude_3_opus:
+          model_name: "claude-3-opus-20240229"
+          model_temperature: 0.7
+          model_max_tokens: 2500
+          model_timeout: 60
+
+    ollama:
+      default_model_name: "llama3"
+      # Ollama는 프로바이더 레벨에서 URL을 설정하는 것이 일반적입니다.
+      model_provider_url: "http://localhost:11434" 
+      models:
+        llama3:
+          # model_name은 Ollama 서버에 pull된 모델 태그와 일치해야 합니다.
+          model_name: "llama3:8b-instruct-q4_K_M" # 예시, 실제 로컬 모델명으로 변경
+          model_temperature: 0.5
+          model_max_tokens: 4096 # 로컬 모델은 컨텍스트 길이를 크게 잡을 수 있음
+          model_timeout: 180
+        codellama_7b_instruct:
+          model_name: "codellama:7b-instruct-q4_K_M"
+          model_temperature: 0.4
+          model_max_tokens: 4096
+          # model_provider_url: "http://another-ollama-server:11434" # 모델별로 다른 Ollama 서버 지정 가능
+
+# 참고:
+# - model_api_key, model_provider_url 등은 프로바이더 레벨에 정의하면 해당 프로바이더의 모든 모델에 적용됩니다.
+# - 만약 특정 모델만 다른 API 키나 URL을 사용해야 한다면, 해당 모델의 설정 내에 직접 정의할 수 있으며, 이 값이 우선합니다.
+# - LangChainSettings 생성자에 직접 전달된 인자(kwargs)는 이 YAML 파일의 설정보다 우선합니다.
+# - 프로젝트 루트에도 config.yaml을 만들 수 있으며, 루트의 config.yaml이 이 파일의 설정을 덮어씁니다.

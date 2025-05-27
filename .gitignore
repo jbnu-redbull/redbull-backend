@@ -176,3 +176,8 @@ cython_debug/
 # private log files
 nohup.out
 *.db
+
+*test.ipynb
+
+config.yaml*
+!config.yaml.example
