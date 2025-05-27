@@ -56,6 +56,14 @@ class OpenAIProvider(LLMProvider):
         logger.debug(f"Creating OpenAI model \'{model_name_to_use}\' with params: {model_params}")
         return ChatOpenAI(**model_params)
 
+class DeepSeekProvider(LLMProvider):
+    """DeepSeek LLM provider implementation"""
+    
+    def create_model(self, model_name_to_use: str, provider_settings: BaseProviderLLMSettings, llm_specific_kwargs: Dict[str, Any]) -> BaseChatModel:
+        from langchain_deepseek import ChatDeepSeek
+        
+        
+
 class AnthropicProvider(LLMProvider):
     """Anthropic LLM provider implementation"""
 
@@ -118,6 +126,48 @@ class OllamaProvider(LLMProvider):
         except Exception as e:
             logger.error(f"Failed to create Ollama model with params {model_params}: {str(e)}", exc_info=True)
             raise RuntimeError(f"Failed to create Ollama model '{model_params.get('model')}': {str(e)}")
+
+class VLLMProvider(LLMProvider):
+    """vLLM provider implementation (via OpenAI-compatible API)"""
+
+    def create_model(self, model_name_to_use: str, provider_settings: BaseProviderLLMSettings, llm_specific_kwargs: Dict[str, Any]) -> BaseChatModel:
+        from langchain_openai import ChatOpenAI
+
+        # For vLLM's OpenAI-compatible server, base_url is essential.
+        # API key might be optional or a dummy one depending on server config.
+        # ChatOpenAI expects 'openai_api_key' or 'api_key'.
+        # We'll use 'api_key' as it's more generic for ChatOpenAI constructor.
+        # If provider_settings.model_api_key is None, ChatOpenAI might default or handle it.
+        # If a dummy key like "NA" or "EMPTY" is required by ChatOpenAI when no auth,
+        # provider_settings.model_api_key should be set to that dummy value in config.yaml.
+
+        model_params = {
+            "model": model_name_to_use,
+            "api_key": provider_settings.model_api_key if hasattr(provider_settings, 'model_api_key') else None,
+            "base_url": provider_settings.model_provider_url if hasattr(provider_settings, 'model_provider_url') else None,
+            "temperature": provider_settings.model_temperature,
+            "max_tokens": provider_settings.model_max_tokens,
+            "timeout": provider_settings.model_timeout,
+        }
+        
+        # Add any other vLLM specific fields passed via provider_settings,
+        # if ChatOpenAI supports them or if they are part of llm_specific_kwargs.
+        # For now, standard OpenAI params are prioritized from settings.
+
+        model_params.update(llm_specific_kwargs) # kwargs override/add parameters
+        model_params = {k: v for k, v in model_params.items() if v is not None} # Clean None values
+
+        if not model_params.get("base_url"):
+            raise ValueError("The 'model_provider_url' (base_url for vLLM server) must be specified in settings for VLLMProvider.")
+        
+        logger.debug(f"Creating vLLM (ChatOpenAI) model '{model_name_to_use}' with params: {model_params}")
+        try:
+            return ChatOpenAI(**model_params)
+        except Exception as e:
+            # Log the actual parameters sent to ChatOpenAI for easier debugging
+            logger.error(f"Failed to create vLLM (ChatOpenAI) model with params {model_params}: {str(e)}", exc_info=True)
+            # Provide a more specific error message
+            raise RuntimeError(f"Failed to create vLLM model '{model_params.get('model')}' using ChatOpenAI client. Ensure the vLLM server is running at '{model_params.get('base_url')}' and is OpenAI-compatible. Original error: {str(e)}")
 
 class LLMFactory:
     """Factory for creating LLM providers.
