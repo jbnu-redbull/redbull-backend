@@ -44,20 +44,20 @@ async def test_validate_audio_file(setup_test_audio):
 @pytest.mark.asyncio
 async def test_stt_pipeline(setup_test_audio):
     """Test the complete STT pipeline."""
-    # Initialize ASR pipeline only
+    # Initialize ASR pipeline
     asr_pipeline = await initialize_asr()
     
-    # Process audio with ASR only
-    chunks = await process_audio(
+    # Process audio with ASR
+    diarization, result = await process_audio(
         TEST_AUDIO_PATH,
         None,  # diarization_pipeline is None
         asr_pipeline,
         num_speakers=2
     )
-    print("chunks:", chunks)  # 디버깅 로그 추가
+    print("result:", result)  # 디버깅 로그 추가
     
     # Save results
-    await save_results(chunks, TEST_OUTPUT_PATH)
+    await save_results(result, TEST_OUTPUT_PATH)
     
     # Verify file was created
     assert os.path.exists(TEST_OUTPUT_PATH)

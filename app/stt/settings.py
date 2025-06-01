@@ -10,8 +10,7 @@ class STTSettings(BaseSettings):
     hf_token: str = Field("your_huggingface_token_here", alias="HF_TOKEN")
     
     # Model paths
-    whisper_cpp_dir: Path = Field(Path("./whisper.cpp"), alias="WHISPER_CPP_DIR")
-    whisper_model_path: Path = Field(Path("./whisper-v3-8bit-ggml.bin"), alias="WHISPER_MODEL_PATH")
+    whisper_model: str = Field("alicekyting/whisper-large-v3-4bit", alias="WHISPER_MODEL")
     diarization_model: str = Field("pyannote/speaker-diarization-3.1", alias="DIARIZATION_MODEL")
     
     # Audio processing settings

@@ -1,5 +1,6 @@
 import torch
 from pyannote.audio import Pipeline
+from transformers import AutoModelForSpeechSeq2Seq, AutoProcessor, pipeline, BitsAndBytesConfig
 import subprocess
 import json
 import os
@@ -35,29 +36,69 @@ async def initialize_diarization():
     )
     return diarization_pipeline
 
+async def initialize_asr():
+    """Initialize the ASR pipeline."""
+    loop = asyncio.get_event_loop()
+    
+    # Initialize model on CPU
+    model = await loop.run_in_executor(
+        None,
+        lambda: AutoModelForSpeechSeq2Seq.from_pretrained(
+            "alicekyting/whisper-large-v3-4bit",
+            device_map="cpu",  # Force CPU usage
+            torch_dtype=torch.float32,  # Use float32 for CPU
+            load_in_4bit=True,
+            quantization_config=BitsAndBytesConfig(
+                load_in_4bit=True,
+                bnb_4bit_compute_dtype=torch.float32,
+                bnb_4bit_use_double_quant=True,
+                bnb_4bit_quant_type="nf4"
+            )
+        )
+    )
+    
+    # Initialize processor
+    processor = await loop.run_in_executor(
+        None,
+        lambda: AutoProcessor.from_pretrained("alicekyting/whisper-large-v3-4bit")
+    )
+    
+    # Create pipeline
+    pipeline = await loop.run_in_executor(
+        None,
+        lambda: pipeline(
+            "automatic-speech-recognition",
+            model=model,
+            tokenizer=processor.tokenizer,
+            feature_extractor=processor.feature_extractor,
+            max_new_tokens=128,
+            chunk_length_s=30,
+            batch_size=16,
+            return_timestamps=True,
+            device="cpu"  # Force CPU usage
+        )
+    )
+    
+    return pipeline
+
 async def process_audio(
     file_path: str,
     diarization_pipeline: Optional[Pipeline] = None,
+    asr_pipeline: Optional[Any] = None,
     num_speakers: int = 2
 ) -> Tuple[Optional[Any], Dict[str, Any]]:
     """
-    Process audio file with diarization and ASR using whisper.cpp.
+    Process audio file with diarization and ASR.
     
     Args:
         file_path: Path to audio file
         diarization_pipeline: Speaker diarization pipeline
+        asr_pipeline: ASR pipeline
         num_speakers: Number of speakers to detect
         
     Returns:
         Tuple of (diarization results, ASR result)
     """
-    # Check if whisper.cpp and model exist
-    whisper_main = stt_settings.whisper_cpp_dir / "main"
-    if not whisper_main.exists():
-        raise FileNotFoundError(f"whisper.cpp main executable not found at {whisper_main}")
-    if not stt_settings.whisper_model_path.exists():
-        raise FileNotFoundError(f"whisper model not found at {stt_settings.whisper_model_path}")
-
     loop = asyncio.get_event_loop()
     
     # Run diarization if pipeline is provided
@@ -68,41 +109,23 @@ async def process_audio(
             lambda: diarization_pipeline(file_path, num_speakers=num_speakers)
         )
     
-    # Run whisper.cpp
+    # Run ASR
+    if asr_pipeline is None:
+        raise ValueError("ASR pipeline is required")
+    
     print(f"Processing audio file: {file_path}")
-    
-    # Create output file path
-    output_base = os.path.splitext(file_path)[0]
-    
-    # Run whisper.cpp command
-    cmd = [
-        str(whisper_main),
-        "-m", str(stt_settings.whisper_model_path),
-        "-t", "4",  # number of threads
-        "-f", file_path,
-        "-of", output_base,
-        "-otxt",
-        "-nt",  # no timestamps
-        "-np"   # no progress
-    ]
-    
     result = await loop.run_in_executor(
         None,
-        lambda: subprocess.run(cmd, capture_output=True, text=True)
+        lambda: asr_pipeline(
+            file_path,
+            chunk_length_s=30,
+            stride_length_s=5,
+            return_timestamps=True
+        )
     )
     
-    if result.returncode != 0:
-        raise ValueError(f"Whisper.cpp failed: {result.stderr}")
-    
-    # Read the output file
-    with open(f"{output_base}.txt", "r", encoding="utf-8") as f:
-        text = f.read()
-    
-    # Format result similar to the original whisper output
-    result = {
-        "text": text,
-        "chunks": [{"text": text, "timestamp": None}]
-    }
+    if result is None:
+        raise ValueError("ASR pipeline returned None")
     
     print("Audio processing completed")
     return diarization, result
